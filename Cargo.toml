@@ -1,0 +1,14 @@
+[package]
+name = "cli-command-kit"
+version = "0.1.0"
+edition = "2024"
+description = "Command-tree help, agent metadata, and embedded usage guides for clap CLIs"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4.6.7", features = ["string", "env", "derive", "wrap_help"] }
+dirs = "7.0.0"
+terminal_size = "0.4.4"
+textwrap = "0.16.4"
+unicode-segmentation = "1.13.3"
+unicode-width = "0.2.2"
