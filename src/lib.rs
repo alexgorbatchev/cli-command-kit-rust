@@ -9,7 +9,7 @@ pub use messages::{display_message, fold_message};
 
 pub use clap;
 use clap::{Arg, ArgAction, Command};
-pub use skill::{skill_omissions, write_skill};
+pub use skill::{SkillSource, skill_omissions, write_skill};
 use std::{collections::BTreeMap, fmt, path::Path};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -105,15 +105,24 @@ pub struct HelpOptions {
     pub tree: TreeOptions,
     pub agent: AgentOptions,
     pub disable_agent: bool,
-    /// Verbatim output for the top-level skill command. May hold an installation
-    /// pointer or a usage document, according to the consumer's contract.
-    pub skill: Option<String>,
+    /// The GitHub repository that publishes the CLI's agent skill. When set, the
+    /// root gains a `skill` command that prints how to install it, and every agent
+    /// screen opens with an alert naming that command. `None` adds neither.
+    pub skill: Option<SkillSource>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Error {
     UnknownCommand(String),
     SkillCollision,
+    /// The skill repository is not a GitHub `owner/repo`.
+    InvalidSkillRepository(String),
+    /// The skill source names a repository but no branch.
+    MissingSkillBranch {
+        repository: String,
+    },
+    /// The skill branch contains whitespace.
+    InvalidSkillBranch(String),
 }
 
 impl fmt::Display for Error {
@@ -122,6 +131,22 @@ impl fmt::Display for Error {
             Self::UnknownCommand(path) => write!(f, "unknown command path: {path}"),
             Self::SkillCollision => {
                 f.write_str("the root already has a command named or aliased skill")
+            }
+            Self::InvalidSkillRepository(repository) => write!(
+                f,
+                "skill repository must be a GitHub \"owner/repo\", got {repository:?}"
+            ),
+            Self::MissingSkillBranch { repository } => {
+                write!(
+                    f,
+                    "skill branch must name the default branch of {repository}"
+                )
+            }
+            Self::InvalidSkillBranch(branch) => {
+                write!(
+                    f,
+                    "skill branch must not contain whitespace, got {branch:?}"
+                )
             }
         }
     }
@@ -156,17 +181,20 @@ fn install_help(
     Ok(())
 }
 
+/// The command an agent runs to learn how to install the skill. The alert names
+/// it, so it is fixed rather than configurable.
+const SKILL_COMMAND: &str = "skill";
+
 fn add_skill(root: &mut Command, options: &HelpOptions) -> Result<(), Error> {
     if options.skill.is_some() {
-        if root
-            .get_subcommands()
-            .any(|c| c.get_name() == "skill" || c.get_all_aliases().any(|a| a == "skill"))
-        {
+        if root.get_subcommands().any(|c| {
+            c.get_name() == SKILL_COMMAND || c.get_all_aliases().any(|a| a == SKILL_COMMAND)
+        }) {
             return Err(Error::SkillCollision);
         }
         *root = root.clone().subcommand(
-            Command::new("skill")
-                .about("Print the usage guide for AI agents")
+            Command::new(SKILL_COMMAND)
+                .about("Print how to install the agent skill")
                 .disable_help_subcommand(true),
         );
     }
@@ -243,7 +271,7 @@ fn visible(command: &Command, hide_generated: bool, has_skill: bool) -> Vec<&Com
                 c.get_name() == "help" && !command.is_disable_help_subcommand_set();
             !c.is_hide_set()
                 && !generated_help
-                && !(hide_generated && has_skill && c.get_name() == "skill")
+                && !(hide_generated && has_skill && c.get_name() == SKILL_COMMAND)
         })
         .collect();
     children.sort_by(|a, b| {

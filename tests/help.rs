@@ -34,6 +34,10 @@ fn fixture() -> Command {
         .subcommand(Command::new("secret").hide(true))
 }
 
+fn source() -> SkillSource {
+    SkillSource::new("acme/app-cli", "trunk").unwrap()
+}
+
 #[test]
 fn human_help_lists_full_subtree_and_shared_columns() {
     let root = fixture();
@@ -136,7 +140,7 @@ fn agent_help_is_untruncated_deterministic_and_contains_real_metadata() {
 #[test]
 fn setup_uses_clap_for_all_help_paths_and_propagates_skill_alert() {
     let options = HelpOptions {
-        skill: Some("exact skill\n".into()),
+        skill: Some(source()),
         ..Default::default()
     };
     for arguments in [
@@ -163,20 +167,12 @@ fn setup_uses_clap_for_all_help_paths_and_propagates_skill_alert() {
     );
     let matches = root.try_get_matches_from_mut(["app", "skill"]).unwrap();
     let mut bytes = Vec::new();
-    assert!(write_skill(&matches, &options, &mut bytes).unwrap());
-    assert_eq!(bytes, b"exact skill\n");
-    let mut broken = BrokenWriter;
-    assert!(write_skill(&matches, &options, &mut broken).is_err());
-}
-
-struct BrokenWriter;
-impl std::io::Write for BrokenWriter {
-    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
-        Err(std::io::Error::other("broken"))
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
+    assert!(write_skill(&root, &matches, &options, &mut bytes).unwrap());
+    assert!(
+        String::from_utf8(bytes)
+            .unwrap()
+            .contains("npx skills add acme/app-cli")
+    );
 }
 
 #[test]
@@ -286,7 +282,7 @@ fn rejects_unknown_command_paths_and_skill_collisions() {
         .is_err()
     );
     let options = HelpOptions {
-        skill: Some("skill".into()),
+        skill: Some(source()),
         ..Default::default()
     };
     assert!(
@@ -435,7 +431,7 @@ fn catalogs_augment_native_values_and_human_usage_omits_description() {
 #[test]
 fn generated_skill_hiding_changes_presentation_and_disabled_agent_stays_human() {
     let options = HelpOptions {
-        skill: Some("read this\n".into()),
+        skill: Some(source()),
         tree: TreeOptions {
             hide_generated_commands: true,
             terminal_width: Some(0),
@@ -444,9 +440,9 @@ fn generated_skill_hiding_changes_presentation_and_disabled_agent_stays_human() 
         ..Default::default()
     };
     let human = render_help(&fixture(), &[], Mode::Human, &options).unwrap();
-    assert!(!human.contains("Print the usage guide"));
+    assert!(!human.contains("Print how to install the agent skill"));
     let agent = render_help(&fixture(), &[], Mode::Agent, &options).unwrap();
-    assert!(agent.contains("skill: Print the usage guide"));
+    assert!(agent.contains("  - skill: Print how to install the agent skill\n"));
     let disabled = HelpOptions {
         disable_agent: true,
         ..options.clone()
@@ -459,7 +455,7 @@ fn generated_skill_hiding_changes_presentation_and_disabled_agent_stays_human() 
     let matches = root
         .try_get_matches_from_mut(["app", "doc", "list"])
         .unwrap();
-    assert!(!write_skill(&matches, &options, &mut Vec::new()).unwrap());
+    assert!(!write_skill(&root, &matches, &options, &mut Vec::new()).unwrap());
     let omissions = skill_omissions(&fixture(), &options, "");
     assert!(omissions.contains(&"command app skill".into()));
     let configured = setup(fixture(), Mode::Human, &options).unwrap();
@@ -529,7 +525,7 @@ fn leaf_help_handles_empty_and_custom_values_without_guessing_types() {
         Command::new("app"),
         Mode::Human,
         &HelpOptions {
-            skill: Some("x".into()),
+            skill: Some(source()),
             ..Default::default()
         },
     )
@@ -537,7 +533,15 @@ fn leaf_help_handles_empty_and_custom_values_without_guessing_types() {
     let matches = skill_root
         .try_get_matches_from_mut(["app", "skill"])
         .unwrap();
-    assert!(!write_skill(&matches, &HelpOptions::default(), &mut Vec::new()).unwrap());
+    assert!(
+        !write_skill(
+            &skill_root,
+            &matches,
+            &HelpOptions::default(),
+            &mut Vec::new()
+        )
+        .unwrap()
+    );
     assert!(display_path(std::path::Path::new("relative/path")).ends_with("relative/path"));
     assert_eq!(
         Mode::from_env(),
