@@ -1,6 +1,6 @@
 ---
 created_on: 2026-10-14 05:37
-last_modified: 2026-10-29 12:49
+last_modified: 2026-11-01 09:51
 status: current
 ---
 
@@ -18,7 +18,7 @@ This library renders help and checks usage guides against native clap command de
 ## Contracts
 
 - Render private command clones. Never mutate a caller's command tree or read application files while rendering.
-- Keep human tree labels intact and align columns by Unicode terminal cells. Preserve grapheme boundaries when clipping descriptions.
+- Keep human tree labels intact and align columns by Unicode terminal cells. Preserve grapheme boundaries when wrapping descriptions, and never truncate help text.
 - Keep agent output deterministic and untruncated by default. Optional clipping preserves complete field names and the skill alert.
 - Report native inherited flags, possible values, explicit defaults, argument requirements, and environment bindings. Do not infer custom parser types from unstable implementation details.
 - Binaries never embed the skill. It lives in the CLI's GitHub repository at `skills/<cli>/SKILL.md`, where `<cli>` is the root command's name and the skill's frontmatter `name`. `SkillSource::new` rejects a repository that is not exactly two non-empty `owner/repo` segments without whitespace, and an empty or whitespace-containing branch; `None` adds no command and no alert.
