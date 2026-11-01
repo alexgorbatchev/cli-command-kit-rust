@@ -18,8 +18,8 @@ This library renders help and checks usage guides against native clap command de
 ## Contracts
 
 - Render private command clones. Never mutate a caller's command tree or read application files while rendering.
-- Keep human tree labels intact and align columns by Unicode terminal cells. Preserve grapheme boundaries when wrapping descriptions, and never truncate help text.
-- Keep agent output deterministic and untruncated by default. Optional clipping preserves complete field names and the skill alert.
+- Keep human tree labels intact and align columns by Unicode terminal cells. Break text only at spaces, keep leading indentation, keep tree rails across continuation lines, and keep a word wider than the terminal whole on its own line. Move a description under its label when its column is narrower than 20 cells. Never truncate help text or leave trailing whitespace.
+- Keep agent output deterministic and complete. It never reads `COLUMNS` or the terminal size, and no option shortens it. Every line is a key, a list item, or a continuation indented beneath one.
 - Report native inherited flags, possible values, explicit defaults, argument requirements, and environment bindings. Do not infer custom parser types from unstable implementation details.
 - Binaries never embed the skill. It lives in the CLI's GitHub repository at `skills/<cli>/SKILL.md`, where `<cli>` is the root command's name and the skill's frontmatter `name`. `SkillSource::new` rejects a repository that is not exactly two non-empty `owner/repo` segments without whitespace, and an empty or whitespace-containing branch; `None` adds no command and no alert.
 - `write_skill` prints these bytes, identical in both modes and ending in exactly one newline, and propagates I/O failures. A configured skill name or alias collision is an error. Keep the alert wording ``ALERT: Agents must read `AGENT=1 <cli> skill` before using this tool.``

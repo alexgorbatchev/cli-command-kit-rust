@@ -1,9 +1,28 @@
 use super::*;
 
+const INDENT: &str = "  ";
+/// The continuation indent of a value that already sits one level in.
+const NESTED_INDENT: &str = "    ";
+
+/// Make text safe to place after a key: blank lines go, tabs become spaces, and each
+/// further line is indented by `cont`, so it reads as a continuation rather than as
+/// a key of its own. Every line of agent help stays a key, a list item, or a
+/// continuation beneath one.
+fn value(text: &str, cont: &str) -> String {
+    text.lines()
+        .map(|line| line.replace('\t', " "))
+        .map(|line| line.trim().to_owned())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(&format!("\n{cont}"))
+}
+
 fn item(output: &mut String, depth: usize, name: &str, description: &str) {
-    output.push_str(&format!("{}- {}", "  ".repeat(depth + 1), name.trim()));
-    if !description.trim().is_empty() {
-        output.push_str(&format!(": {}", description.trim()));
+    let indent = INDENT.repeat(depth + 1);
+    output.push_str(&format!("{indent}- {}", name.trim()));
+    let description = value(description, &format!("{indent}{INDENT}"));
+    if !description.is_empty() {
+        output.push_str(&format!(": {description}"));
     }
     output.push('\n');
 }
@@ -30,7 +49,7 @@ pub(super) fn render(root: &Command, command: &Command, options: &HelpOptions) -
         info.summary.clone()
     };
     if !summary.is_empty() {
-        output.push_str(&format!("summary: {}\n", summary.trim()));
+        output.push_str(&format!("summary: {}\n", value(&summary, INDENT)));
     }
     let description = if info.description.is_empty() {
         command
@@ -41,7 +60,7 @@ pub(super) fn render(root: &Command, command: &Command, options: &HelpOptions) -
         info.description.clone()
     };
     if !description.is_empty() && description.trim() != summary.trim() {
-        output.push_str(&format!("description: {}\n", description.trim()));
+        output.push_str(&format!("description: {}\n", value(&description, INDENT)));
     }
     output.push_str(&format!("usage: {}\n", usage(command)));
     for (title, specs) in [
@@ -90,7 +109,7 @@ pub(super) fn render(root: &Command, command: &Command, options: &HelpOptions) -
     if !info.metadata.is_empty() {
         output.push_str("metadata:\n");
         for (key, value) in &info.metadata {
-            output.push_str(&format!("  {key}: {value}\n"));
+            output.push_str(&format!("  {key}: {}\n", self::value(value, NESTED_INDENT)));
         }
     }
     if !visible(command, false, options.skill.is_some()).is_empty() {
@@ -105,7 +124,7 @@ pub(super) fn render(root: &Command, command: &Command, options: &HelpOptions) -
                 "  {} {}: {}",
                 flag_label(arg),
                 arg_type(arg, &info),
-                help(arg)
+                value(&help(arg), NESTED_INDENT)
             ));
             if let Some(default) = defaults(arg) {
                 output.push_str(&format!(" (default: {default:?})"));
@@ -132,21 +151,6 @@ pub(super) fn render(root: &Command, command: &Command, options: &HelpOptions) -
                 q.comment.trim().trim_start_matches('#').trim(),
             );
         }
-    }
-    let width = options.agent.max_line_width.unwrap_or(0);
-    if width > 0 {
-        output = output
-            .lines()
-            .map(|line| match line.split_once(": ") {
-                Some((key, value)) if width > UnicodeWidthStr::width(key) + 5 => format!(
-                    "{key}: {}",
-                    truncate(value, width - UnicodeWidthStr::width(key) - 2)
-                ),
-                _ => line.to_owned(),
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-            + "\n";
     }
     if options.skill.is_some() {
         output.insert_str(

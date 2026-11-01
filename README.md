@@ -6,7 +6,7 @@
 - **Two output modes**: Produces human-readable columns or compact agent metadata.
 - **Agent skills**: Prints how to install the CLI's skill from its GitHub repository with the Skills CLI, and checks the skill for interface omissions.
 - **Native metadata**: Includes argument requirements, environment variables, possible values, parser types, and defaults.
-- **Terminal-aware layout**: Measures Unicode display cells and clips descriptions without cutting command labels.
+- **Terminal-aware layout**: Measures Unicode display cells and wraps help between words, with continuation lines aligned to their column. Text is never cut.
 
 # How It Works
 
@@ -18,8 +18,8 @@
 # How it Really Works
 
 - Rendering works on private copies of command definitions. It performs no network requests or file writes.
-- Human output detects terminal width from `COLUMNS`, then the terminal, unless you specify a width. Introductory descriptions wrap to that width while retaining paragraph breaks. `Some(0)` disables wrapping and clipping. Oversized labels and very narrow fields remain complete so commands and metadata keys stay identifiable.
-- Agent output is untruncated by default. Optional clipping shortens values while preserving keys, and the skill alert always remains complete.
+- Human output detects terminal width from `COLUMNS`, then the terminal, unless you specify a width. Every part of the screen wraps between words and keeps its indentation and paragraph breaks. Descriptions stay in their column, tree rows keep their branch lines, and a description moves under its label when its column is narrower than 20 cells. A word wider than the terminal stays whole on its own line. `Some(0)` disables wrapping, as does an unknown width.
+- Agent output is always complete, and neither `COLUMNS` nor the terminal size changes it. Every line is a key, a list item, or a continuation indented beneath one: a multi-line value drops its blank lines, its tabs become spaces, and each further line is indented.
 - The `skill` command prints the same text in both modes, where `<cli>` is the root command's name. The binary carries no copy of the skill, so the one an agent installs is always the one the repository holds at `skills/<cli>/SKILL.md`:
 
   ```text
@@ -125,7 +125,6 @@ fn skill_mentions_the_whole_interface() -> Result<(), Box<dyn std::error::Error>
 | `tree.min_label_width` | `0` → `20` | Minimum label-column width. |
 | `tree.terminal_width` | `None` | Detects terminal width; `Some(0)` keeps descriptions complete. |
 | `tree.hide_generated_commands` | `false` | Hides the library-provided skill command from human listings. |
-| `agent.max_line_width` | `None` | Keeps agent values complete; a positive value enables clipping. |
 | `disable_agent` | `false` | Uses human rendering regardless of the supplied mode. |
 | `skill` | `None` | A `SkillSource`; adds a `skill` command that prints how to install the skill, and an agent-mode alert naming that command. |
 

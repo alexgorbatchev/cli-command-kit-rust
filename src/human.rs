@@ -1,6 +1,76 @@
+use super::wrap::{cells, expand_tabs, split_indent, trim_trailing_space, wrap_prose, wrap_words};
 use super::*;
 
-type Row = (String, String);
+/// The narrowest description column worth keeping. Below it a description reads as a
+/// stack of single words, so it moves under its label.
+const MIN_DESCRIPTION_CELLS: usize = 20;
+const STACKED_INDENT: &str = "    ";
+/// Indents the continuation of a label wider than the terminal.
+const LABEL_HANG_INDENT: &str = "  ";
+/// Flag labels start at most this far in, so a stacked description sits beneath them.
+const FLAG_RAIL: &str = "    ";
+const QUICKSTART_MARKER: &str = "# ";
+
+#[derive(Default)]
+struct Row {
+    label: String,
+    description: String,
+    /// Starts every continuation line, so a tree's branch lines stay unbroken beside
+    /// a description that wraps.
+    rail: String,
+    /// Opens every description line, so a wrapped comment stays a comment.
+    marker: &'static str,
+}
+
+impl Row {
+    /// The description stays in its column while the column is wide enough to read,
+    /// and otherwise moves under the label. A label that wraps also moves it, since
+    /// no single line then ends where the column starts.
+    fn render(&self, column: usize, padding: usize, width: usize) -> String {
+        let (indent, body) = split_indent(&self.label);
+        let hang = format!("{}{LABEL_HANG_INDENT}", self.rail);
+        let labels = wrap_words(indent, body, &hang, width);
+        if self.description.is_empty() {
+            return join_lines(&labels);
+        }
+        if width > 0 && (width.saturating_sub(column) < MIN_DESCRIPTION_CELLS || labels.len() > 1) {
+            let prefix = format!("{}{STACKED_INDENT}{}", self.rail, self.marker);
+            return join_lines(&labels) + &join_lines(&self.wrap(&prefix, &prefix, width));
+        }
+        let label = &labels[labels.len() - 1];
+        let pad = column.saturating_sub(cells(label)).max(padding);
+        let rail_pad = column.saturating_sub(cells(&self.rail));
+        let first = format!("{label}{}{}", " ".repeat(pad), self.marker);
+        let cont = format!("{}{}{}", self.rail, " ".repeat(rail_pad), self.marker);
+        join_lines(&self.wrap(&first, &cont, width))
+    }
+
+    /// Wrap line by line, keeping the line breaks the author wrote. Only the first
+    /// line of the first paragraph starts with `first`.
+    fn wrap(&self, first: &str, cont: &str, width: usize) -> Vec<String> {
+        let mut lines = Vec::new();
+        let mut start = first;
+        for line in self.description.lines() {
+            let line = if width > 0 {
+                expand_tabs(line)
+            } else {
+                line.to_owned()
+            };
+            lines.extend(wrap_words(start, line.trim_end(), cont, width));
+            start = cont;
+        }
+        lines
+    }
+}
+
+/// End each line with a newline. Trimming here keeps a line that holds only a rail
+/// or padding from ending in spaces.
+fn join_lines(lines: &[String]) -> String {
+    lines
+        .iter()
+        .map(|line| format!("{}\n", line.trim_end_matches(' ')))
+        .collect()
+}
 
 fn rows(command: &Command, prefix: &str, options: &HelpOptions, output: &mut Vec<Row>) {
     let children = visible(
@@ -11,41 +81,42 @@ fn rows(command: &Command, prefix: &str, options: &HelpOptions, output: &mut Vec
     for (index, child) in children.iter().enumerate() {
         let last = index + 1 == children.len();
         let branch = if last { "╰─ " } else { "├─ " };
-        output.push((
-            format!("{prefix}{branch}{}", command_label(child)),
-            summary(child),
-        ));
-        rows(
-            child,
-            &format!("{prefix}{}", if last { "   " } else { "│  " }),
-            options,
-            output,
-        );
+        let rail = format!("{prefix}{}", if last { "   " } else { "│  " });
+        output.push(Row {
+            label: format!("{prefix}{branch}{}", command_label(child)),
+            description: summary(child),
+            rail: rail.clone(),
+            ..Row::default()
+        });
+        rows(child, &rail, options, output);
     }
 }
 
 fn specs(specs: &[Spec]) -> Vec<Row> {
     specs
         .iter()
-        .map(|s| (format!("  {}", s.name), s.description.clone()))
+        .map(|s| Row {
+            label: format!("  {}", s.name),
+            description: s.description.clone(),
+            ..Row::default()
+        })
         .collect()
 }
 
 fn write_rows(output: &mut String, rows: &[Row], column: usize, options: &TreeOptions) {
-    for (label, description) in rows {
-        // If the label itself exceeds the screen, retaining the complete command
-        // remains more useful than a prefix that cannot be invoked.
-        output.push_str(label);
-        if !description.is_empty() {
-            let padding = column
-                .saturating_sub(UnicodeWidthStr::width(label.as_str()))
-                .max(options.padding());
-            output.push_str(&" ".repeat(padding));
-            let budget = options.width().saturating_sub(column);
-            output.push_str(&truncate(&description.replace(['\n', '\r'], " "), budget));
-        }
-        output.push('\n');
+    for row in rows {
+        output.push_str(&row.render(column, options.padding(), options.width()));
     }
+}
+
+fn widest(rows: &[&Row]) -> usize {
+    rows.iter().map(|row| cells(&row.label)).max().unwrap_or(0)
+}
+
+fn append_heading(output: &mut String, heading: &str, width: usize) {
+    output.push('\n');
+    output.push_str(&wrap_prose(&format!("{heading}:"), width));
+    output.push('\n');
 }
 
 fn append_block(
@@ -56,7 +127,7 @@ fn append_block(
     options: &TreeOptions,
 ) {
     if !rows.is_empty() {
-        output.push_str(&format!("\n{heading}:\n"));
+        append_heading(output, heading, options.width());
         write_rows(output, rows, column, options);
     }
 }
@@ -73,32 +144,28 @@ pub(super) fn render(command: &Command, options: &HelpOptions, description: bool
             .map(ToString::to_string)
             .unwrap_or_default();
         if !about.is_empty() {
-            if tree_options.width() > 0 {
-                output.push_str(&textwrap::fill(
-                    about.trim(),
-                    textwrap::Options::new(tree_options.width()).break_words(false),
-                ));
-            } else {
-                output.push_str(about.trim());
-            }
+            output.push_str(&wrap_prose(about.trim(), tree_options.width()));
             output.push_str("\n\n");
         }
     }
-    output.push_str(&format!("Usage:\n  {}\n", usage(command)));
+    output.push_str("Usage:\n");
+    output.push_str(&wrap_prose(
+        &format!("  {}", usage(command)),
+        tree_options.width(),
+    ));
+    output.push('\n');
     let args = specs(&argument_specs(command, &info));
     let envs = specs(&environment_specs(command, &info));
     let mut tree = Vec::new();
     if tree_options.include_root {
-        tree.push((command_label(command), summary(command)));
+        tree.push(Row {
+            label: command_label(command),
+            description: summary(command),
+            ..Row::default()
+        });
     }
     rows(command, "", options, &mut tree);
-    let column = args
-        .iter()
-        .chain(&envs)
-        .chain(&tree)
-        .map(|(label, _)| UnicodeWidthStr::width(label.as_str()))
-        .max()
-        .unwrap_or(0)
+    let column = widest(&args.iter().chain(&envs).chain(&tree).collect::<Vec<_>>())
         .max(tree_options.label_width())
         + tree_options.padding();
     append_block(&mut output, "Arguments", &args, column, &tree_options);
@@ -145,65 +212,34 @@ pub(super) fn render(command: &Command, options: &HelpOptions, description: bool
         if !values.is_empty() {
             description.push_str(&format!(" [possible: {}]", values.join(", ")));
         }
+        let row = Row {
+            label,
+            description,
+            rail: FLAG_RAIL.to_owned(),
+            ..Row::default()
+        };
         if arg.is_global_set() {
-            global.push((label, description));
+            global.push(row);
         } else {
-            local.push((label, description));
+            local.push(row);
         }
     }
-    let flag_column = local
-        .iter()
-        .chain(&global)
-        .map(|(label, _)| UnicodeWidthStr::width(label.as_str()))
-        .max()
-        .unwrap_or(0)
-        + tree_options.padding();
+    let flag_column =
+        widest(&local.iter().chain(&global).collect::<Vec<_>>()) + tree_options.padding();
     for (title, block) in [("Flags", local), ("Global Flags", global)] {
-        if block.is_empty() {
-            continue;
-        }
-        output.push_str(&format!("\n{title}:\n"));
-        for (label, text) in block {
-            let padding = flag_column.saturating_sub(UnicodeWidthStr::width(label.as_str()));
-            let initial = format!("{label}{}", " ".repeat(padding));
-            let width = tree_options.width();
-            if width > flag_column {
-                let wrapped = textwrap::fill(
-                    &text,
-                    textwrap::Options::new(width)
-                        .initial_indent(&initial)
-                        .subsequent_indent(&" ".repeat(flag_column))
-                        .break_words(false),
-                );
-                output.push_str(&wrapped);
-            } else {
-                output.push_str(&initial);
-                output.push_str(&text);
-            }
-            output.push('\n');
-        }
+        append_block(&mut output, title, &block, flag_column, &tree_options);
     }
     let quickstart: Vec<_> = info
         .quickstart
         .iter()
-        .map(|q| {
-            let comment = q.comment.trim().trim_start_matches('#').trim();
-            (
-                format!("  {}", q.command),
-                if comment.is_empty() {
-                    String::new()
-                } else {
-                    format!("# {comment}")
-                },
-            )
+        .map(|q| Row {
+            label: format!("  {}", q.command),
+            description: q.comment.trim().trim_start_matches('#').trim().to_owned(),
+            marker: QUICKSTART_MARKER,
+            ..Row::default()
         })
         .collect();
-    let quick_column = quickstart
-        .iter()
-        .map(|(label, _)| UnicodeWidthStr::width(label.as_str()))
-        .max()
-        .unwrap_or(0)
-        + tree_options.padding();
+    let quick_column = widest(&quickstart.iter().collect::<Vec<_>>()) + tree_options.padding();
     append_block(
         &mut output,
         "Quickstart",
@@ -216,7 +252,7 @@ pub(super) fn render(command: &Command, options: &HelpOptions, description: bool
         .or_else(|| command.get_after_help())
     {
         output.push('\n');
-        output.push_str(&after.to_string());
+        output.push_str(&wrap_prose(&after.to_string(), tree_options.width()));
         output.push('\n');
     }
     if !tree.is_empty() {
@@ -225,15 +261,8 @@ pub(super) fn render(command: &Command, options: &HelpOptions, description: bool
             command_path(command)
         );
         output.push('\n');
-        if tree_options.width() > 0 {
-            output.push_str(&textwrap::fill(
-                &hint,
-                textwrap::Options::new(tree_options.width()).break_words(false),
-            ));
-        } else {
-            output.push_str(&hint);
-        }
+        output.push_str(&wrap_prose(&hint, tree_options.width()));
         output.push('\n');
     }
-    output
+    trim_trailing_space(&output)
 }

@@ -5,14 +5,13 @@ mod agent;
 mod human;
 mod messages;
 mod skill;
+mod wrap;
 pub use messages::{display_message, fold_message};
 
 pub use clap;
 use clap::{Arg, ArgAction, Command};
 pub use skill::{SkillSource, skill_omissions, write_skill};
 use std::{collections::BTreeMap, fmt, path::Path};
-use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Mode {
@@ -42,7 +41,8 @@ pub struct TreeOptions {
     pub min_padding: usize,
     /// Zero selects twenty cells.
     pub min_label_width: usize,
-    /// None detects terminal width; Some(0) explicitly disables clipping.
+    /// The width human help wraps to, never cutting text. None detects the terminal;
+    /// Some(0) leaves lines unwrapped, as does an unknown width.
     pub terminal_width: Option<usize>,
     pub hide_generated_commands: bool,
 }
@@ -65,12 +65,6 @@ impl TreeOptions {
     fn width(&self) -> usize {
         self.terminal_width.unwrap_or_else(terminal_width)
     }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct AgentOptions {
-    /// None or zero preserves complete content regardless of terminal width.
-    pub max_line_width: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -103,7 +97,6 @@ pub type TechCatalog = BTreeMap<String, TechInfo>;
 pub struct HelpOptions {
     pub catalog: TechCatalog,
     pub tree: TreeOptions,
-    pub agent: AgentOptions,
     pub disable_agent: bool,
     /// The GitHub repository that publishes the CLI's agent skill. When set, the
     /// root gains a `skill` command that prints how to install it, and every agent
@@ -433,24 +426,6 @@ fn usage(command: &Command) -> String {
         .trim_start_matches("Usage: ")
         .trim()
         .to_owned()
-}
-
-fn truncate(text: &str, width: usize) -> String {
-    if width == 0 || UnicodeWidthStr::width(text) <= width || width <= 3 {
-        return text.to_owned();
-    }
-    let mut result = String::new();
-    let mut used = 0;
-    for cluster in text.graphemes(true) {
-        let next = UnicodeWidthStr::width(cluster);
-        if used + next > width - 3 {
-            break;
-        }
-        result.push_str(cluster);
-        used += next;
-    }
-    result.push_str("...");
-    result
 }
 
 pub fn terminal_width() -> usize {

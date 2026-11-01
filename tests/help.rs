@@ -75,11 +75,8 @@ fn human_about_wraps_to_terminal_cells_and_preserves_paragraphs() {
         ..Default::default()
     };
     for path in [vec![], vec!["doc"]] {
-        assert!(
-            render_help(&root, &path, Mode::Agent, &options)
-                .unwrap()
-                .contains(about)
-        );
+        let agent = render_help(&root, &path, Mode::Agent, &options).unwrap();
+        assert!(agent.contains(&about.replace("\n\n", "\n  ")), "{agent}");
         let human = render_help(&root, &path, Mode::Human, &options).unwrap();
         let description = human.split("\n\nUsage:").next().unwrap();
         assert!(description.contains("\n\n日本語の説明"), "{human}");
@@ -175,43 +172,218 @@ fn setup_uses_clap_for_all_help_paths_and_propagates_skill_alert() {
     );
 }
 
-#[test]
-fn unicode_cells_and_agent_key_structure_survive_clipping() {
-    let mut options = HelpOptions {
+fn assert_fits(screen: &str, width: usize) {
+    for line in screen.lines() {
+        assert_eq!(line, line.trim_end(), "trailing whitespace: {line:?}");
+        let words = line
+            .trim_matches([' ', '│', '├', '╰', '─', '#'])
+            .split_whitespace()
+            .count();
+        let used = unicode_width::UnicodeWidthStr::width(line);
+        assert!(used <= width || words <= 1, "{used} cells: {line:?}");
+    }
+}
+
+fn assert_whole(screen: &str, text: &str) {
+    let flattened = screen
+        .replace("# ", "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let want = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flattened.contains(&want), "lost {want:?} in:\n{screen}");
+}
+
+fn wrap_options(width: Option<usize>) -> HelpOptions {
+    HelpOptions {
         tree: TreeOptions {
-            terminal_width: Some(45),
+            terminal_width: width,
             ..Default::default()
         },
-        agent: AgentOptions {
-            max_line_width: Some(24),
-        },
         ..Default::default()
+    }
+}
+
+#[test]
+fn human_help_keeps_every_word_at_every_width() {
+    let text = "alpha beta 界 gamma ".repeat(12);
+    let root = Command::new("app")
+        .about(text.clone())
+        .after_help(text.clone())
+        .arg(Arg::new("flag").long("flag").help(text.clone()))
+        .arg(Arg::new("path").help(text.clone()))
+        .subcommand(
+            Command::new("group")
+                .about(text.clone())
+                .subcommand(Command::new(format!("wide-{}", "x".repeat(70))).about(text.clone())),
+        );
+    for width in [1, 2, 20, 40, 60, 80, 100] {
+        let mut options = wrap_options(Some(width));
+        options.catalog.insert(
+            "app".into(),
+            TechInfo {
+                env: vec![Spec {
+                    name: "APP_A".into(),
+                    description: text.clone(),
+                }],
+                quickstart: vec![QuickstartItem {
+                    command: "app run".into(),
+                    comment: text.clone(),
+                }],
+                ..Default::default()
+            },
+        );
+        let screen = render_help(&root, &[], Mode::Human, &options).unwrap();
+        assert_fits(&screen, width);
+        assert_whole(&screen, &text);
+        assert!(!screen.contains("..."), "{screen}");
+    }
+}
+
+#[test]
+fn unknown_width_leaves_help_unwrapped() {
+    let text = "description ".repeat(30);
+    let root = Command::new("app")
+        .about(text.clone())
+        .subcommand(Command::new("child").about(text.clone()));
+    let screen = render_help(&root, &[], Mode::Human, &wrap_options(Some(0))).unwrap();
+    assert!(screen.contains(text.trim()), "{screen}");
+    assert_fits(&screen, 1000);
+}
+
+#[test]
+fn wrapped_descriptions_keep_their_column_and_rails() {
+    let root = Command::new("app")
+        .subcommand(
+            Command::new("group")
+                .about("Group")
+                .subcommand(Command::new("first").about("alpha ".repeat(20)))
+                .subcommand(Command::new("second").about("Short")),
+        )
+        .subcommand(Command::new("文書").about("beta ".repeat(20)));
+    let screen = render_help(&root, &[], Mode::Human, &wrap_options(Some(60))).unwrap();
+    let start =
+        |line: &str| unicode_width::UnicodeWidthStr::width(line.split("alpha").next().unwrap());
+    let first = screen.lines().find(|l| l.contains("first")).unwrap();
+    let continuations: Vec<_> = screen
+        .lines()
+        .filter(|l| l.contains("alpha") && !l.contains("first"))
+        .collect();
+    assert!(!continuations.is_empty(), "{screen}");
+    for line in continuations {
+        assert!(line.starts_with("│  │"), "{line:?}");
+        assert_eq!(start(line), start(first), "{line:?}");
+    }
+    assert_fits(&screen, 60);
+}
+
+#[test]
+fn narrow_columns_stack_descriptions_under_their_label() {
+    let root = Command::new("app").arg(
+        Arg::new("name")
+            .long("a-rather-long-flag-name")
+            .help("Describes the flag in several words"),
+    );
+    let screen = render_help(&root, &[], Mode::Human, &wrap_options(Some(40))).unwrap();
+    let label = screen
+        .lines()
+        .find(|l| l.contains("--a-rather-long-flag-name"))
+        .unwrap();
+    assert!(!label.contains("Describes"), "{label:?}");
+    let description = screen.lines().find(|l| l.contains("Describes")).unwrap();
+    assert!(
+        description.starts_with("        Describes"),
+        "{description:?}"
+    );
+    assert_whole(&screen, "Describes the flag in several words");
+}
+
+#[test]
+fn a_word_wider_than_the_terminal_stays_whole_on_its_own_line() {
+    let word = "x".repeat(80);
+    let root = Command::new("app").subcommand(Command::new("child").about(word.clone()));
+    let screen = render_help(&root, &[], Mode::Human, &wrap_options(Some(50))).unwrap();
+    let line = screen.lines().find(|l| l.contains("xxx")).unwrap();
+    assert_eq!(line.trim_matches([' ', '│']), word);
+}
+
+#[test]
+fn multi_line_descriptions_keep_their_lines() {
+    let root = Command::new("app").subcommand(Command::new("child").about("first\nsecond"));
+    let screen = render_help(&root, &[], Mode::Human, &wrap_options(Some(80))).unwrap();
+    let column = |word: &str| {
+        screen
+            .lines()
+            .find_map(|line| line.find(word).map(|at| line[..at].chars().count()))
+            .unwrap()
     };
+    assert_eq!(column("first"), column("second"), "{screen}");
+}
+
+#[test]
+fn quickstart_comments_wrap_as_comments() {
+    let mut options = wrap_options(Some(45));
     options.catalog.insert(
         "app".into(),
         TechInfo {
-            summary: "日".repeat(100),
-            metadata: BTreeMap::from([
-                ("long_key_that_cannot_fit".into(), "v".repeat(80)),
-                ("x".into(), "日".repeat(80)),
-            ]),
+            quickstart: vec![QuickstartItem {
+                command: "app run".into(),
+                comment: "A very long comment that should wrap and stay a comment".into(),
+            }],
             ..Default::default()
         },
     );
-    let text = render_help(&fixture(), &[], Mode::Agent, &options).unwrap();
-    assert!(text.contains("metadata:\n"));
-    assert!(text.contains(&format!("long_key_that_cannot_fit: {}", "v".repeat(80))));
-    let clipped = text.lines().find(|line| line.starts_with("  x:")).unwrap();
-    assert!(clipped.ends_with("..."));
-    assert!(unicode_width::UnicodeWidthStr::width(clipped) <= 24);
-    let root = Command::new("app").subcommand(Command::new("文書").about("日".repeat(60)));
-    let human = render_help(&root, &[], Mode::Human, &options).unwrap();
-    let row = human
-        .lines()
-        .find(|line| line.contains("╰─ 文書"))
-        .unwrap_or_else(|| panic!("{human}"));
-    assert!(row.ends_with("..."));
-    assert!(unicode_width::UnicodeWidthStr::width(row) <= 45);
+    let screen = render_help(&Command::new("app"), &[], Mode::Human, &options).unwrap();
+    let comments: Vec<_> = screen.lines().filter(|l| l.contains("# ")).collect();
+    assert!(comments.len() > 1, "{screen}");
+    let at = comments[0].find("# ").unwrap();
+    assert!(
+        comments.iter().all(|l| l.find("# ") == Some(at)),
+        "{screen}"
+    );
+}
+
+#[test]
+fn agent_help_ignores_every_width() {
+    let long = "word ".repeat(200);
+    let root = Command::new("app").about(long.clone());
+    let first = render_help(&root, &[], Mode::Agent, &wrap_options(Some(1))).unwrap();
+    assert!(first.contains(long.trim()));
+    for width in [0, 20, 80, 500] {
+        let other = render_help(&root, &[], Mode::Agent, &wrap_options(Some(width))).unwrap();
+        assert_eq!(first, other);
+    }
+}
+
+#[test]
+fn agent_help_keeps_every_line_parseable() {
+    let mut options = HelpOptions::default();
+    options.catalog.insert(
+        "app".into(),
+        TechInfo {
+            summary: "one\ntwo".into(),
+            description: "three\n\n\tfour".into(),
+            args: vec![Spec {
+                name: "<a>".into(),
+                description: "five\nsix".into(),
+            }],
+            metadata: BTreeMap::from([("key".into(), "seven\neight".into())]),
+            ..Default::default()
+        },
+    );
+    let root = Command::new("app").arg(Arg::new("mode").long("mode").help("first\n\tsecond"));
+    let text = render_help(&root, &[], Mode::Agent, &options).unwrap();
+    assert!(!text.contains('\t'), "{text}");
+    assert!(!text.contains("\n\n"), "{text}");
+    for want in [
+        "summary: one\n  two\n",
+        "description: three\n  four\n",
+        "  - <a>: five\n    six\n",
+        "  key: seven\n    eight\n",
+        "first\n    second",
+    ] {
+        assert!(text.contains(want), "missing {want:?} in:\n{text}");
+    }
 }
 
 #[test]
@@ -519,7 +691,10 @@ fn leaf_help_handles_empty_and_custom_values_without_guessing_types() {
             .contains("--custom record:")
     );
     let output = render_help(&root, &[], Mode::Human, &options).unwrap();
-    assert!(output.contains("--custom <value>"));
+    assert!(
+        output.contains("--custom\n") && output.contains("<value>"),
+        "{output}"
+    );
     assert!(!output.contains("Available Commands:"));
     let mut skill_root = setup(
         Command::new("app"),
