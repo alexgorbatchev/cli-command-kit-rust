@@ -8,7 +8,7 @@ use std::{
 mod install;
 
 const INSTALL_COMMAND: &str = "install";
-const TARGET_DIR: &str = "target-dir";
+const DIR: &str = "dir";
 
 pub(super) fn install_command() -> Command {
     Command::new(INSTALL_COMMAND)
@@ -18,8 +18,8 @@ pub(super) fn install_command() -> Command {
              if needed. Fail if it already contains an entry named after the skill.",
         )
         .arg(
-            Arg::new(TARGET_DIR)
-                .value_name(TARGET_DIR)
+            Arg::new(DIR)
+                .value_name(DIR)
                 .value_parser(clap::value_parser!(PathBuf))
                 .required(true)
                 .help("Parent directory for the installed skill"),
@@ -91,8 +91,8 @@ fn is_github_repository(repository: &str) -> bool {
 
 /// Handle the skill command from matches produced by [setup].
 ///
-/// Bare `skill` prints offline instructions. `skill install <target-dir>` uses
-/// Git to install the configured skill into `<target-dir>/<cli>` and prints the
+/// Bare `skill` prints offline instructions. `skill install <dir>` uses
+/// Git to install the configured skill into `<dir>/<cli>` and prints the
 /// installed path. Both routes produce identical output in both modes.
 ///
 /// Returns `false` without writing when the matches select another command or no
@@ -115,7 +115,7 @@ pub fn write_skill(
     let cli = root.get_name();
     if let Some(install) = skill.subcommand_matches(INSTALL_COMMAND) {
         let target = install
-            .try_get_one::<PathBuf>(TARGET_DIR)
+            .try_get_one::<PathBuf>(DIR)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
             .ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, "missing target directory")

@@ -1,6 +1,6 @@
 ---
 created_on: 2026-10-14 05:37
-last_modified: 2026-11-28 12:18
+last_modified: 2026-11-28 12:51
 status: current
 ---
 
@@ -34,7 +34,7 @@ This library renders help and checks usage guides against native clap command de
     https://github.com/<owner>/<repo>/tree/<branch>/skills/<cli>
   ```
 
-- `<cli> skill install <target-dir>` uses Git at invocation time to install the configured branch's skill directory and companion files under `<target-dir>/<cli>`. Create missing parents, reject an existing destination, and print `installed: <path>` on success in both modes. Include the installer route and its argument in downstream skill coverage.
+- `<cli> skill install <dir>` uses Git at invocation time to install the configured branch's skill directory and companion files under `<dir>/<cli>`. Create missing parents, reject an existing destination, and print `installed: <path>` on success in both modes. Include the installer route and its argument in downstream skill coverage.
 - `skill_omissions` checks the `SKILL.md` a CLI's tests read from its repository.
 - Code changes affecting runtime results require corresponding behavioral test changes and at least 90% line coverage; `scripts/` is excluded. Retain tests for real parser help routes and write failures.
 - Never publish releases, tags, packages, or production deployments without explicit user authorization.

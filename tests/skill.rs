@@ -124,7 +124,7 @@ fn skill_install_requires_one_path_and_has_native_help() {
             "{help}"
         );
         assert!(
-            help.to_string().contains("app skill install <target-dir>"),
+            help.to_string().contains("app skill install <dir>"),
             "{help}"
         );
     }
@@ -410,7 +410,7 @@ fn skill_omissions_include_the_generated_skill_command() {
         "{configured:?}"
     );
     assert!(
-        configured.contains(&"argument <target-dir> of app skill install".into()),
+        configured.contains(&"argument <dir> of app skill install".into()),
         "{configured:?}"
     );
 }

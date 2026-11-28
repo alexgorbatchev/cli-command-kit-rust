@@ -13,7 +13,7 @@
 1. Supply your command definition and optional descriptions, examples, and the GitHub repository that publishes your agent skill.
 2. Select human or agent output, explicitly or from `AGENT`.
 3. Install the help screens before parsing arguments, or render individual screens into strings.
-4. Handle the `skill` and `skill install <target-dir>` commands with `write_skill`.
+4. Handle the `skill` and `skill install <dir>` commands with `write_skill`.
 
 # How it Really Works
 
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`notes skill` prints installation instructions offline. `notes skill install <target-dir>` uses Git on `PATH` to fetch the configured branch and installs the skill folder, including companion files, into `<target-dir>/notes`. It creates missing parent directories, refuses an existing `notes` entry, and prints `installed: <path>` in either output mode.
+`notes skill` prints installation instructions offline. `notes skill install <dir>` uses Git on `PATH` to fetch the configured branch and installs the skill folder, including companion files, into `<dir>/notes`. It creates missing parent directories, refuses an existing `notes` entry, and prints `installed: <path>` in either output mode.
 
 Keep the skill complete with a test that reads it from the repository. `skill_omissions` lists every command, flag, shorthand, type, default, argument, and environment variable it does not mention; paths are relative to the package root:
 
@@ -109,7 +109,7 @@ fn skill_mentions_the_whole_interface() -> Result<(), Box<dyn std::error::Error>
 | :--- | :--- |
 | `setup` | Installs help screens and an optional `skill` command; returns a command definition or a skill-collision error. |
 | `render_help`, `render_usage` | Renders a root or descendant selected by canonical names or aliases; unknown paths return an error. |
-| `write_skill` | Prints offline instructions for `skill` or installs the skill for `skill install <target-dir>`; returns whether it handled the command. |
+| `write_skill` | Prints offline instructions for `skill` or installs the skill for `skill install <dir>`; returns whether it handled the command. |
 | `SkillSource` | Names the GitHub `owner/repo` and branch that publish the skill; `SkillSource::new` rejects a malformed repository or branch. |
 | `skill_omissions` | Lists missing commands, flags, shorthands, types, defaults, arguments, and environment variables in sorted order. |
 | `Mode` | Selects human or agent rendering. |
