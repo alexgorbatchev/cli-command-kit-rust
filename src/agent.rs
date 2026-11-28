@@ -64,7 +64,7 @@ pub(super) fn render(root: &Command, command: &Command, options: &HelpOptions) -
     }
     output.push_str(&format!("usage: {}\n", usage(command)));
     for (title, specs) in [
-        ("args", argument_specs(command, &info)),
+        ("args", argument_specs(command, &info, help)),
         ("env", environment_specs(command, &info)),
     ] {
         if !specs.is_empty() {

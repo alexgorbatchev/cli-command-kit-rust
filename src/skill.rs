@@ -205,7 +205,7 @@ fn visit(command: &Command, options: &HelpOptions, text: &str, missing: &mut BTr
             ));
         }
     }
-    for spec in argument_specs(command, &info) {
+    for spec in argument_specs(command, &info, help) {
         if !text.contains(&spec.name) {
             missing.insert(format!("argument {} of {path}", spec.name));
         }

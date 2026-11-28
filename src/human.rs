@@ -103,6 +103,21 @@ fn specs(specs: &[Spec]) -> Vec<Row> {
         .collect()
 }
 
+fn append_possible_values(description: &mut String, arg: &Arg) {
+    let values: Vec<_> = arg
+        .get_possible_values()
+        .into_iter()
+        .filter(|value| !value.is_hide_set())
+        .map(|value| value.get_name().to_owned())
+        .collect();
+    if !values.is_empty() {
+        if !description.is_empty() {
+            description.push(' ');
+        }
+        description.push_str(&format!("[possible: {}]", values.join(", ")));
+    }
+}
+
 fn write_rows(output: &mut String, rows: &[Row], column: usize, options: &TreeOptions) {
     for row in rows {
         output.push_str(&row.render(column, options.padding(), options.width()));
@@ -154,7 +169,11 @@ pub(super) fn render(command: &Command, options: &HelpOptions, description: bool
         tree_options.width(),
     ));
     output.push('\n');
-    let args = specs(&argument_specs(command, &info));
+    let args = specs(&argument_specs(command, &info, |arg| {
+        let mut description = help(arg);
+        append_possible_values(&mut description, arg);
+        description
+    }));
     let envs = specs(&environment_specs(command, &info));
     let mut tree = Vec::new();
     if tree_options.include_root {
@@ -203,15 +222,7 @@ pub(super) fn render(command: &Command, options: &HelpOptions, description: bool
         if let Some(default) = defaults(arg) {
             description.push_str(&format!(" (default: {default:?})"));
         }
-        let values: Vec<_> = arg
-            .get_possible_values()
-            .into_iter()
-            .filter(|v| !v.is_hide_set())
-            .map(|v| v.get_name().to_owned())
-            .collect();
-        if !values.is_empty() {
-            description.push_str(&format!(" [possible: {}]", values.join(", ")));
-        }
+        append_possible_values(&mut description, arg);
         let row = Row {
             label,
             description,

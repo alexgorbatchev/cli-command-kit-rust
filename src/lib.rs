@@ -2,6 +2,7 @@
 //! Renderers build private clones; callers may share their command definitions.
 
 mod agent;
+mod completion;
 mod human;
 mod messages;
 mod skill;
@@ -10,6 +11,7 @@ pub use messages::{display_message, fold_message};
 
 pub use clap;
 use clap::{Arg, ArgAction, Command};
+pub use completion::{completion_command, write_completion};
 pub use skill::{SkillSource, skill_omissions, write_skill};
 use std::{collections::BTreeMap, fmt, path::Path};
 
@@ -385,7 +387,11 @@ fn info(command: &Command, options: &HelpOptions) -> TechInfo {
         .unwrap_or_default()
 }
 
-fn argument_specs(command: &Command, info: &TechInfo) -> Vec<Spec> {
+fn argument_specs(
+    command: &Command,
+    info: &TechInfo,
+    description: fn(&Arg) -> String,
+) -> Vec<Spec> {
     if !info.args.is_empty() {
         return info.args.clone();
     }
@@ -394,7 +400,7 @@ fn argument_specs(command: &Command, info: &TechInfo) -> Vec<Spec> {
         .filter(|a| !a.is_hide_set())
         .map(|arg| Spec {
             name: positional_label(arg),
-            description: help(arg),
+            description: description(arg),
         })
         .collect()
 }

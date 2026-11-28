@@ -5,6 +5,7 @@
 - **Complete trees**: Shows every visible descendant of a command group.
 - **Two output modes**: Produces human-readable columns or compact agent metadata.
 - **Agent skills**: Prints installation instructions, installs the skill to a chosen directory, and checks the skill for interface omissions.
+- **Shell completions**: Generates shell completion scripts for the CLI's command tree.
 - **Native metadata**: Includes argument requirements, environment variables, possible values, parser types, and defaults.
 - **Terminal-aware layout**: Measures Unicode display cells and wraps help between words, with continuation lines aligned to their column. Text is never cut.
 
@@ -103,11 +104,30 @@ fn skill_mentions_the_whole_interface() -> Result<(), Box<dyn std::error::Error>
 }
 ```
 
+Add `completion_command()` to the root before `setup` and pass parsed matches to `write_completion`. The handler returns `true` after writing a script, so the CLI can skip its regular dispatch. `notes completion zsh` writes a Zsh script to stdout. The other supported shell names are `bash`, `elvish`, `fish`, and `powershell`.
+
+```rust
+use cli_command_kit::{completion_command, setup, write_completion, HelpOptions, Mode};
+use cli_command_kit::clap::Command;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let root = Command::new("notes").subcommand(completion_command());
+    let mut root = setup(root, Mode::from_env(), &HelpOptions::default())?;
+    let matches = root.get_matches_mut();
+    if write_completion(&root, &matches, &mut std::io::stdout())? {
+        return Ok(());
+    }
+    print!("{}", root.render_help());
+    Ok(())
+}
+```
+
 # API
 
 | Export | Purpose |
 | :--- | :--- |
 | `setup` | Installs help screens and an optional `skill` command; returns a command definition or a skill-collision error. |
+| `completion_command`, `write_completion` | Define the optional `completion <shell>` command and write its script from the complete command tree. |
 | `render_help`, `render_usage` | Renders a root or descendant selected by canonical names or aliases; unknown paths return an error. |
 | `write_skill` | Prints offline instructions for `skill` or installs the skill for `skill install <dir>`; returns whether it handled the command. |
 | `SkillSource` | Names the GitHub `owner/repo` and branch that publish the skill; `SkillSource::new` rejects a malformed repository or branch. |
