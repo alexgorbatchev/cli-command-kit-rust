@@ -100,6 +100,8 @@ pub struct HelpOptions {
     pub catalog: TechCatalog,
     pub tree: TreeOptions,
     pub disable_agent: bool,
+    /// Skip automatic registration of the built-in `completion <shell>` command.
+    pub disable_completion: bool,
     /// The GitHub repository that publishes the CLI's agent skill. When set, the
     /// root gains a `skill` command with instructions and an installer, and every
     /// agent screen opens with an alert naming that command. `None` adds neither.
@@ -110,6 +112,7 @@ pub struct HelpOptions {
 pub enum Error {
     UnknownCommand(String),
     SkillCollision,
+    CompletionCollision,
     /// The skill repository is not a GitHub `owner/repo`.
     InvalidSkillRepository(String),
     /// The skill source names a repository but no branch.
@@ -127,6 +130,9 @@ impl fmt::Display for Error {
             Self::SkillCollision => {
                 f.write_str("the root already has a command named or aliased skill")
             }
+            Self::CompletionCollision => f.write_str(
+                "the root already has a command named or aliased completion. Set disable_completion to keep it",
+            ),
             Self::InvalidSkillRepository(repository) => write!(
                 f,
                 "skill repository must be a GitHub \"owner/repo\", got {repository:?}"
@@ -148,10 +154,11 @@ impl fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
-/// Install clap-native help overrides throughout the real command tree.
+/// Register built-in commands and install clap-native help overrides throughout
+/// the real command tree. Completion is enabled by default.
 /// clap retains responsibility for parsing arguments and choosing output streams.
 pub fn setup(mut root: Command, mode: Mode, options: &HelpOptions) -> Result<Command, Error> {
-    add_skill(&mut root, options)?;
+    add_builtin_commands(&mut root, options)?;
     root.build();
     let snapshot = root.clone();
     install_help(&mut root, &snapshot, &mut Vec::new(), mode, options)?;
@@ -180,6 +187,14 @@ fn install_help(
 /// it, so it is fixed rather than configurable.
 const SKILL_COMMAND: &str = "skill";
 
+fn add_builtin_commands(root: &mut Command, options: &HelpOptions) -> Result<(), Error> {
+    add_skill(root, options)?;
+    if !options.disable_completion {
+        completion::add(root)?;
+    }
+    Ok(())
+}
+
 fn add_skill(root: &mut Command, options: &HelpOptions) -> Result<(), Error> {
     if options.skill.is_some() {
         if root.get_subcommands().any(|c| {
@@ -205,7 +220,7 @@ pub fn render_help(
     options: &HelpOptions,
 ) -> Result<String, Error> {
     let mut root = root.clone();
-    add_skill(&mut root, options)?;
+    add_builtin_commands(&mut root, options)?;
     root.build();
     render_built(&root, path, mode, options)
 }
@@ -217,7 +232,7 @@ pub fn render_usage(
     options: &HelpOptions,
 ) -> Result<String, Error> {
     let mut root = root.clone();
-    add_skill(&mut root, options)?;
+    add_builtin_commands(&mut root, options)?;
     root.build();
     let command = select(&root, path)?;
     let output = if mode == Mode::Agent && !options.disable_agent {
@@ -265,9 +280,10 @@ fn visible(command: &Command, hide_generated: bool, has_skill: bool) -> Vec<&Com
             // not another set of executable domain commands.
             let generated_help =
                 c.get_name() == "help" && !command.is_disable_help_subcommand_set();
+            let generated_skill = has_skill && c.get_name() == SKILL_COMMAND;
             !c.is_hide_set()
                 && !generated_help
-                && !(hide_generated && has_skill && c.get_name() == SKILL_COMMAND)
+                && !(hide_generated && (generated_skill || completion::is_builtin(c)))
         })
         .collect();
     children.sort_by(|a, b| {

@@ -156,6 +156,11 @@ pub fn skill_omissions(root: &Command, options: &HelpOptions, text: &str) -> Vec
     {
         missing.insert(error.to_string());
     }
+    if !options.disable_completion
+        && let Err(error) = completion::add(&mut root)
+    {
+        missing.insert(error.to_string());
+    }
     root.build();
     visit(&root, options, text, &mut missing);
     missing.into_iter().collect()

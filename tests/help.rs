@@ -49,9 +49,10 @@ fn human_help_lists_full_subtree_and_shared_columns() {
         ..Default::default()
     };
     let output = render_help(&root, &[], Mode::Human, &options).unwrap();
-    assert!(output.contains("╰─ doc"));
-    assert!(output.contains("   ├─ list"));
-    assert!(output.contains("   ╰─ create <name>"), "{output}");
+    assert!(output.contains("├─ doc"), "{output}");
+    assert!(output.contains("│  ├─ list"), "{output}");
+    assert!(output.contains("│  ╰─ create <name>"), "{output}");
+    assert!(output.contains("╰─ completion <shell>"), "{output}");
     assert_eq!(output.matches("List documents").count(), 1);
     assert!(!output.contains("secret"));
     assert!(output.contains("--config"));
@@ -413,7 +414,7 @@ fn skill_coverage_checks_boundaries_types_defaults_and_environment() {
         skill_omissions(
             &root,
             &HelpOptions::default(),
-            "app\n--config -c string cfg.toml APP_CONFIG"
+            "app\n--config -c string cfg.toml APP_CONFIG\napp completion <shell>\n-h --help bool"
         )
         .is_empty()
     );
@@ -426,8 +427,8 @@ fn skill_coverage_recognizes_explicit_empty_string_defaults() {
         .disable_help_flag(true)
         .arg(Arg::new("model").long("model").default_value(""));
     for description in [
-        "app\n--model string default empty",
-        "app\n--model string default \"\"",
+        "app\n--model string default empty\napp completion <shell>\n-h --help bool",
+        "app\n--model string default \"\"\napp completion <shell>\n-h --help bool",
     ] {
         assert!(skill_omissions(&root, &HelpOptions::default(), description).is_empty());
     }

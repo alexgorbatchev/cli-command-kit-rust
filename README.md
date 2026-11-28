@@ -14,7 +14,7 @@
 1. Supply your command definition and optional descriptions, examples, and the GitHub repository that publishes your agent skill.
 2. Select human or agent output, explicitly or from `AGENT`.
 3. Install the help screens before parsing arguments, or render individual screens into strings.
-4. Handle the `skill` and `skill install <dir>` commands with `write_skill`.
+4. Pass parsed matches to `write_completion` and, if configured, `write_skill` before dispatching the CLI's own commands.
 
 # How it Really Works
 
@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 Publish the skill at `skills/notes/SKILL.md` in the CLI's GitHub repository, then add the `skill` command:
 
 ```rust
-use cli_command_kit::{setup, write_skill, HelpOptions, Mode, SkillSource};
+use cli_command_kit::{setup, write_completion, write_skill, HelpOptions, Mode, SkillSource};
 use cli_command_kit::clap::Command;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -78,7 +78,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut root = setup(Command::new("notes"), Mode::from_env(), &options)?;
     let matches = root.get_matches_mut();
-    write_skill(&root, &matches, &options, &mut std::io::stdout())?;
+    let mut output = std::io::stdout().lock();
+    if write_completion(&root, &matches, &mut output)?
+        || write_skill(&root, &matches, &options, &mut output)?
+    {
+        return Ok(());
+    }
     Ok(())
 }
 ```
@@ -104,15 +109,16 @@ fn skill_mentions_the_whole_interface() -> Result<(), Box<dyn std::error::Error>
 }
 ```
 
-Add `completion_command()` to the root before `setup` and pass parsed matches to `write_completion`. The handler returns `true` after writing a script, so the CLI can skip its regular dispatch. `notes completion zsh` writes a Zsh script to stdout. The other supported shell names are `bash`, `elvish`, `fish`, and `powershell`.
+`setup` adds `completion <shell>` by default. Pass parsed matches to `write_completion`, which returns `true` after writing a script so the CLI can skip its regular dispatch. `notes completion zsh` writes a Zsh script to stdout. The other supported shell names are `bash`, `elvish`, `fish`, and `powershell`.
+
+Set `HelpOptions::disable_completion` to `true` to skip automatic registration. Use this setting if the root already has a command named or aliased `completion`. You can also register the kit's command explicitly with `completion_command()`.
 
 ```rust
-use cli_command_kit::{completion_command, setup, write_completion, HelpOptions, Mode};
+use cli_command_kit::{setup, write_completion, HelpOptions, Mode};
 use cli_command_kit::clap::Command;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let root = Command::new("notes").subcommand(completion_command());
-    let mut root = setup(root, Mode::from_env(), &HelpOptions::default())?;
+    let mut root = setup(Command::new("notes"), Mode::from_env(), &HelpOptions::default())?;
     let matches = root.get_matches_mut();
     if write_completion(&root, &matches, &mut std::io::stdout())? {
         return Ok(());
@@ -126,8 +132,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | Export | Purpose |
 | :--- | :--- |
-| `setup` | Installs help screens and an optional `skill` command; returns a command definition or a skill-collision error. |
-| `completion_command`, `write_completion` | Define the optional `completion <shell>` command and write its script from the complete command tree. |
+| `setup` | Installs help screens, the default `completion` command, and an optional `skill` command. Reports conflicting commands. |
+| `completion_command`, `write_completion` | Define the built-in `completion <shell>` command for manual registration and write its script from the complete command tree. |
 | `render_help`, `render_usage` | Renders a root or descendant selected by canonical names or aliases; unknown paths return an error. |
 | `write_skill` | Prints offline instructions for `skill` or installs the skill for `skill install <dir>`; returns whether it handled the command. |
 | `SkillSource` | Names the GitHub `owner/repo` and branch that publish the skill; `SkillSource::new` rejects a malformed repository or branch. |
@@ -146,8 +152,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `tree.min_padding` | `0` → `2` | Minimum cells between labels and descriptions. |
 | `tree.min_label_width` | `0` → `20` | Minimum label-column width. |
 | `tree.terminal_width` | `None` | Detects terminal width; `Some(0)` keeps descriptions complete. |
-| `tree.hide_generated_commands` | `false` | Hides the library-provided skill command from human listings. |
+| `tree.hide_generated_commands` | `false` | Hides library-provided skill and completion commands from human listings. |
 | `disable_agent` | `false` | Uses human rendering regardless of the supplied mode. |
+| `disable_completion` | `false` | Skips automatic registration of the built-in `completion <shell>` command. |
 | `skill` | `None` | A `SkillSource`; adds a `skill` command that prints how to install the skill, and an agent-mode alert naming that command. |
 
 # License
