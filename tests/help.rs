@@ -614,7 +614,12 @@ fn generated_skill_hiding_changes_presentation_and_disabled_agent_stays_human() 
     let human = render_help(&fixture(), &[], Mode::Human, &options).unwrap();
     assert!(!human.contains("Print how to install the agent skill"));
     let agent = render_help(&fixture(), &[], Mode::Agent, &options).unwrap();
-    assert!(agent.contains("  - skill: Print how to install the agent skill\n"));
+    assert!(agent.contains("  - skill: Print instructions or install the agent skill\n"));
+    assert!(
+        agent.contains(
+            "    - install <target-dir>: Install the agent skill in a target directory\n"
+        )
+    );
     let disabled = HelpOptions {
         disable_agent: true,
         ..options.clone()

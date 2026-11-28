@@ -1,5 +1,6 @@
 use clap::{Arg, Command};
 use cli_command_kit::*;
+use std::{fs, io, path::Path, process::Command as ProcessCommand};
 
 const ALERT: &str = "ALERT: Agents must read `AGENT=1 app skill` before using this tool.\n";
 
@@ -79,12 +80,175 @@ fn skill_command_rejects_arguments_and_describes_itself() {
     let skill = configured.find_subcommand("skill").unwrap();
     assert_eq!(
         skill.get_about().unwrap().to_string(),
-        "Print how to install the agent skill"
+        "Print instructions or install the agent skill"
     );
     assert_eq!(
         skill.get_arguments().filter(|a| !a.is_positional()).count(),
         1
     );
+}
+
+#[test]
+fn skill_install_requires_one_path_and_has_native_help() {
+    use clap::error::ErrorKind;
+
+    let mut configured = setup(root(), Mode::Agent, &options()).unwrap();
+    for (args, kind) in [
+        (
+            &["app", "skill", "install"][..],
+            ErrorKind::MissingRequiredArgument,
+        ),
+        (
+            &["app", "skill", "install", "one", "two"],
+            ErrorKind::UnknownArgument,
+        ),
+    ] {
+        assert_eq!(
+            configured
+                .try_get_matches_from_mut(args)
+                .unwrap_err()
+                .kind(),
+            kind
+        );
+    }
+    for args in [
+        ["app", "skill", "install", "--help"],
+        ["app", "help", "skill", "install"],
+    ] {
+        let help = configured.try_get_matches_from_mut(args).unwrap_err();
+        assert_eq!(help.kind(), ErrorKind::DisplayHelp);
+        assert!(help.to_string().starts_with(ALERT), "{help}");
+        assert!(
+            help.to_string()
+                .contains("Create the target directory if needed"),
+            "{help}"
+        );
+        assert!(
+            help.to_string().contains("app skill install <target-dir>"),
+            "{help}"
+        );
+    }
+}
+
+#[test]
+fn skill_install_uses_the_configured_branch_and_keeps_the_full_skill() {
+    const FIXTURE_TARGET: &str = "CLI_COMMAND_KIT_TEST_SKILL_TARGET";
+    if let Some(parent) = std::env::var_os(FIXTURE_TARGET) {
+        let parent = Path::new(&parent);
+        for mode in [Mode::Human, Mode::Agent] {
+            let target = parent.join(format!("{mode:?} skills"));
+            let options = options();
+            let mut configured = setup(root(), mode, &options).unwrap();
+            let matches = configured
+                .try_get_matches_from_mut([
+                    "app".as_ref(),
+                    "skill".as_ref(),
+                    "install".as_ref(),
+                    target.as_os_str(),
+                ])
+                .unwrap();
+            let mut output = Vec::new();
+            assert!(write_skill(&configured, &matches, &options, &mut output).unwrap());
+            let installed = target.join("app");
+            assert_eq!(
+                String::from_utf8(output).unwrap(),
+                format!("installed: {}\n", display_path(&installed))
+            );
+            assert_eq!(
+                fs::read_to_string(installed.join("SKILL.md")).unwrap(),
+                "configured branch\n"
+            );
+            assert_eq!(
+                fs::read(installed.join("references/manual.bin")).unwrap(),
+                [0, 255]
+            );
+            assert!(!installed.join(".git").exists());
+            assert_eq!(fs::read_dir(&target).unwrap().count(), 1);
+
+            let mut output = Vec::new();
+            let error = write_skill(&configured, &matches, &options, &mut output).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+            assert!(output.is_empty());
+            assert_eq!(
+                fs::read_to_string(installed.join("SKILL.md")).unwrap(),
+                "configured branch\n"
+            );
+        }
+
+        for cli in ["missing", "incomplete", ".."] {
+            let target = parent.join(format!("failed {cli}"));
+            let options = options();
+            let mut configured = setup(Command::new(cli), Mode::Human, &options).unwrap();
+            let matches = configured
+                .try_get_matches_from_mut([
+                    cli.as_ref(),
+                    "skill".as_ref(),
+                    "install".as_ref(),
+                    target.as_os_str(),
+                ])
+                .unwrap();
+            let mut output = Vec::new();
+            assert!(write_skill(&configured, &matches, &options, &mut output).is_err());
+            assert!(output.is_empty());
+            if target.exists() {
+                assert_eq!(fs::read_dir(target).unwrap().count(), 0);
+            }
+        }
+        return;
+    }
+
+    let fixture = tempfile::tempdir().unwrap();
+    let repo = fixture.path().join("repo");
+    fs::create_dir(&repo).unwrap();
+    let git = |args: &[&str]| {
+        let output = ProcessCommand::new("git")
+            .current_dir(&repo)
+            .args([
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.com",
+                "-c",
+                "commit.gpgSign=false",
+            ])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {output:?}");
+    };
+    git(&["init", "--initial-branch=main"]);
+    fs::create_dir_all(repo.join("skills/app/references")).unwrap();
+    fs::create_dir_all(repo.join("skills/incomplete")).unwrap();
+    fs::write(repo.join("skills/app/SKILL.md"), "default branch\n").unwrap();
+    fs::write(repo.join("skills/app/references/manual.bin"), [0, 255]).unwrap();
+    fs::write(repo.join("skills/incomplete/note"), "Missing SKILL.md").unwrap();
+    fs::write(repo.join("README.md"), "Unrelated file").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-m", "Set up fixture"]);
+    git(&["switch", "-c", "trunk"]);
+    fs::write(repo.join("skills/app/SKILL.md"), "configured branch\n").unwrap();
+    git(&["commit", "-am", "Change branch instructions"]);
+    git(&["switch", "main"]);
+
+    // Provide Git configuration to a subprocess so the test never modifies
+    // global configuration, shares environment changes, or contacts GitHub.
+    let result = ProcessCommand::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "skill_install_uses_the_configured_branch_and_keeps_the_full_skill",
+            "--nocapture",
+        ])
+        .env(FIXTURE_TARGET, fixture.path().join("install"))
+        .env("GIT_ALLOW_PROTOCOL", "file")
+        .env("GIT_CONFIG_COUNT", "1")
+        .env(
+            "GIT_CONFIG_KEY_0",
+            format!("url.{}.insteadOf", repo.display()),
+        )
+        .env("GIT_CONFIG_VALUE_0", "https://github.com/acme/app-cli.git")
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{result:?}");
 }
 
 #[test]
@@ -239,6 +403,14 @@ fn skill_omissions_include_the_generated_skill_command() {
     let configured = skill_omissions(&root(), &options(), text);
     assert!(
         configured.contains(&"command app skill".into()),
+        "{configured:?}"
+    );
+    assert!(
+        configured.contains(&"command app skill install".into()),
+        "{configured:?}"
+    );
+    assert!(
+        configured.contains(&"argument <target-dir> of app skill install".into()),
         "{configured:?}"
     );
 }

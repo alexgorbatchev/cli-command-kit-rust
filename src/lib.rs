@@ -99,8 +99,8 @@ pub struct HelpOptions {
     pub tree: TreeOptions,
     pub disable_agent: bool,
     /// The GitHub repository that publishes the CLI's agent skill. When set, the
-    /// root gains a `skill` command that prints how to install it, and every agent
-    /// screen opens with an alert naming that command. `None` adds neither.
+    /// root gains a `skill` command with instructions and an installer, and every
+    /// agent screen opens with an alert naming that command. `None` adds neither.
     pub skill: Option<SkillSource>,
 }
 
@@ -187,8 +187,9 @@ fn add_skill(root: &mut Command, options: &HelpOptions) -> Result<(), Error> {
         }
         *root = root.clone().subcommand(
             Command::new(SKILL_COMMAND)
-                .about("Print how to install the agent skill")
-                .disable_help_subcommand(true),
+                .about("Print instructions or install the agent skill")
+                .disable_help_subcommand(true)
+                .subcommand(skill::install_command()),
         );
     }
     Ok(())

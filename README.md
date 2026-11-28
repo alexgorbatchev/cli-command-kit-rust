@@ -1,10 +1,10 @@
-`cli-command-kit` gives Rust CLI authors aligned command-tree help, deterministic agent output, and a `skill` command that tells AI agents how to install the CLI's skill. It describes the real command interface, including inherited flags and nested commands.
+`cli-command-kit` gives Rust CLI authors aligned command-tree help, deterministic agent output, and shared commands for installing the CLI's agent skill. It describes the real command interface, including inherited flags and nested commands.
 
 # What It Does
 
 - **Complete trees**: Shows every visible descendant of a command group.
 - **Two output modes**: Produces human-readable columns or compact agent metadata.
-- **Agent skills**: Prints how to install the CLI's skill from its GitHub repository with the Skills CLI, and checks the skill for interface omissions.
+- **Agent skills**: Prints installation instructions, installs the skill to a chosen directory, and checks the skill for interface omissions.
 - **Native metadata**: Includes argument requirements, environment variables, possible values, parser types, and defaults.
 - **Terminal-aware layout**: Measures Unicode display cells and wraps help between words, with continuation lines aligned to their column. Text is never cut.
 
@@ -13,7 +13,7 @@
 1. Supply your command definition and optional descriptions, examples, and the GitHub repository that publishes your agent skill.
 2. Select human or agent output, explicitly or from `AGENT`.
 3. Install the help screens before parsing arguments, or render individual screens into strings.
-4. Handle a configured `skill` command with `write_skill`, which prints the install instructions and returns write failures.
+4. Handle the `skill` and `skill install <target-dir>` commands with `write_skill`.
 
 # How it Really Works
 
@@ -82,6 +82,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+`notes skill` prints installation instructions offline. `notes skill install <target-dir>` uses Git on `PATH` to fetch the configured branch and installs the skill folder, including companion files, into `<target-dir>/notes`. It creates missing parent directories, refuses an existing `notes` entry, and prints `installed: <path>` in either output mode.
+
 Keep the skill complete with a test that reads it from the repository. `skill_omissions` lists every command, flag, shorthand, type, default, argument, and environment variable it does not mention; paths are relative to the package root:
 
 ```rust
@@ -107,7 +109,7 @@ fn skill_mentions_the_whole_interface() -> Result<(), Box<dyn std::error::Error>
 | :--- | :--- |
 | `setup` | Installs help screens and an optional `skill` command; returns a command definition or a skill-collision error. |
 | `render_help`, `render_usage` | Renders a root or descendant selected by canonical names or aliases; unknown paths return an error. |
-| `write_skill` | Prints the install instructions for the root command when parsed matches select `skill`; returns whether it handled the command. |
+| `write_skill` | Prints offline instructions for `skill` or installs the skill for `skill install <target-dir>`; returns whether it handled the command. |
 | `SkillSource` | Names the GitHub `owner/repo` and branch that publish the skill; `SkillSource::new` rejects a malformed repository or branch. |
 | `skill_omissions` | Lists missing commands, flags, shorthands, types, defaults, arguments, and environment variables in sorted order. |
 | `Mode` | Selects human or agent rendering. |

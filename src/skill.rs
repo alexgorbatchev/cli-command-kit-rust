@@ -2,7 +2,29 @@ use super::*;
 use std::{
     collections::BTreeSet,
     io::{self, Write},
+    path::PathBuf,
 };
+
+mod install;
+
+const INSTALL_COMMAND: &str = "install";
+const TARGET_DIR: &str = "target-dir";
+
+pub(super) fn install_command() -> Command {
+    Command::new(INSTALL_COMMAND)
+        .about("Install the agent skill in a target directory")
+        .long_about(
+            "Use Git to download the skill and its companion files. Create the target directory \
+             if needed. Fail if it already contains an entry named after the skill.",
+        )
+        .arg(
+            Arg::new(TARGET_DIR)
+                .value_name(TARGET_DIR)
+                .value_parser(clap::value_parser!(PathBuf))
+                .required(true)
+                .help("Parent directory for the installed skill"),
+        )
+}
 
 /// The GitHub repository that publishes a CLI's agent skill.
 ///
@@ -67,25 +89,42 @@ fn is_github_repository(repository: &str) -> bool {
     })
 }
 
-/// Handle the skill command after clap parsing: print how to install the skill
-/// that `options.skill` publishes for the CLI named by `root`, identically in
-/// both modes, and propagate write failures.
+/// Handle the skill command from matches produced by [setup].
+///
+/// Bare `skill` prints offline instructions. `skill install <target-dir>` uses
+/// Git to install the configured skill into `<target-dir>/<cli>` and prints the
+/// installed path. Both routes produce identical output in both modes.
 ///
 /// Returns `false` without writing when the matches select another command or no
 /// skill source is configured.
+///
+/// # Errors
+///
+/// Returns Git, filesystem, and output errors. Installation refuses an existing
+/// destination. An output error after installation leaves the installed files.
 pub fn write_skill(
     root: &Command,
     matches: &clap::ArgMatches,
     options: &HelpOptions,
     output: &mut impl Write,
 ) -> io::Result<bool> {
-    if matches.subcommand_name() != Some(SKILL_COMMAND) {
-        return Ok(false);
-    }
-    let Some(source) = &options.skill else {
+    let (Some(skill), Some(source)) = (matches.subcommand_matches(SKILL_COMMAND), &options.skill)
+    else {
         return Ok(false);
     };
-    output.write_all(source.instructions(root.get_name()).as_bytes())?;
+    let cli = root.get_name();
+    if let Some(install) = skill.subcommand_matches(INSTALL_COMMAND) {
+        let target = install
+            .try_get_one::<PathBuf>(TARGET_DIR)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "missing target directory")
+            })?;
+        let destination = install::skill(source, cli, target)?;
+        writeln!(output, "installed: {}", display_path(&destination))?;
+    } else {
+        output.write_all(source.instructions(cli).as_bytes())?;
+    }
     Ok(true)
 }
 

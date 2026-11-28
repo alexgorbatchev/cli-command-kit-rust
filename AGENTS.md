@@ -1,6 +1,6 @@
 ---
 created_on: 2026-10-14 05:37
-last_modified: 2026-11-01 09:51
+last_modified: 2026-11-28 12:18
 status: current
 ---
 
@@ -22,7 +22,7 @@ This library renders help and checks usage guides against native clap command de
 - Keep agent output deterministic and complete. It never reads `COLUMNS` or the terminal size, and no option shortens it. Every line is a key, a list item, or a continuation indented beneath one.
 - Report native inherited flags, possible values, explicit defaults, argument requirements, and environment bindings. Do not infer custom parser types from unstable implementation details.
 - Binaries never embed the skill. It lives in the CLI's GitHub repository at `skills/<cli>/SKILL.md`, where `<cli>` is the root command's name and the skill's frontmatter `name`. `SkillSource::new` rejects a repository that is not exactly two non-empty `owner/repo` segments without whitespace, and an empty or whitespace-containing branch; `None` adds no command and no alert.
-- `write_skill` prints these bytes, identical in both modes and ending in exactly one newline, and propagates I/O failures. A configured skill name or alias collision is an error. Keep the alert wording ``ALERT: Agents must read `AGENT=1 <cli> skill` before using this tool.``
+- Bare `<cli> skill` prints these bytes offline, identical in both modes and ending in exactly one newline. `write_skill` propagates I/O failures. A configured skill name or alias collision is an error. Keep the alert wording ``ALERT: Agents must read `AGENT=1 <cli> skill` before using this tool.``
 
   ```text
   Install the <cli> skill using the Skills CLI:
@@ -33,6 +33,8 @@ This library renders help and checks usage guides against native clap command de
 
     https://github.com/<owner>/<repo>/tree/<branch>/skills/<cli>
   ```
+
+- `<cli> skill install <target-dir>` uses Git at invocation time to install the configured branch's skill directory and companion files under `<target-dir>/<cli>`. Create missing parents, reject an existing destination, and print `installed: <path>` on success in both modes. Include the installer route and its argument in downstream skill coverage.
 - `skill_omissions` checks the `SKILL.md` a CLI's tests read from its repository.
 - Code changes affecting runtime results require corresponding behavioral test changes and at least 90% line coverage; `scripts/` is excluded. Retain tests for real parser help routes and write failures.
 - Never publish releases, tags, packages, or production deployments without explicit user authorization.
